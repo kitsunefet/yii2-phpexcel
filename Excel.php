@@ -7,6 +7,7 @@ use yii\base\InvalidConfigException;
 use yii\base\InvalidParamException;
 use yii\i18n\Formatter;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 /**
  * Excel Widget for generate Excel File or for load Excel File.
@@ -418,6 +419,8 @@ class Excel extends \yii\base\Widget
 	 * @var boolean define the column autosize
 	 */
 	public $autoSize = false;
+	public $autoSizeLimit = 0;
+	public $highlightHeader = false;
 	/**
 	 * @var boolean if true, this writer pre-calculates all formulas in the spreadsheet. This can be slow on large spreadsheets, and maybe even unwanted.
 	 */
@@ -426,14 +429,6 @@ class Excel extends \yii\base\Widget
 	 * @var boolean Because of a bug in the Office2003 compatibility pack, there can be some small issues when opening Xlsx spreadsheets (mostly related to formula calculation)
 	 */
 	public $compatibilityOffice2003 = false;
-	/**
-	 * @var custom CSV delimiter for import. Works only with CSV files
-	 */
-	public $CSVDelimiter = ";";
-	/**
-	 * @var custom CSV encoding for import. Works only with CSV files
-	 */
-	public $CSVEncoding = "UTF-8";
   
 	/**
 	 * (non-PHPdoc)
@@ -494,14 +489,10 @@ class Excel extends \yii\base\Widget
 						    $activeSheet->getStyle($col.$row)->applyFromArray($column['cellFormat']);
 						}
 					} else {
-					    if(isset($headers[$column])) {
-					        $header = $headers[$column];
-					    } else {
-					        $header = $model->getAttributeLabel($column);
-					    }
+						$header = $model->getAttributeLabel($column);
 					}
-					if (isset($column['width'])) {
-					    $activeSheet->getColumnDimension(strtoupper($col))->setWidth($column['width']);
+					if($this->highlightHeader){
+						$activeSheet->getStyle($col.$row)->getFont()->setBold(true);
 					}
 					$activeSheet->setCellValue($col.$row,$header);
 					$colnum++;
@@ -539,6 +530,19 @@ class Excel extends \yii\base\Widget
 			if($this->autoSize){
 				foreach (range(0, $colnum) as $col) {
 					$activeSheet->getColumnDimensionByColumn($col)->setAutoSize(true);
+				}
+				if($this->autoSizeLimit){
+					$activeSheet->calculateColumnWidths();
+					foreach ($activeSheet->getColumnDimensions() as $colDim) {
+						if (!$colDim->getAutoSize()) {
+							continue;
+						}
+						$colWidth = $colDim->getWidth();
+						if ($colWidth > $this->autoSizeLimit) {
+							$colDim->setAutoSize(false);
+							$colDim->setWidth($this->autoSizeLimit);
+						}
+					}
 				}
 			}
 		}
@@ -726,8 +730,6 @@ class Excel extends \yii\base\Widget
 		$objectwriter->save($path);
 		if ($path == 'php://output')
     		  exit();
-		
-    		 return true;
 	}
 
 	/**
@@ -738,10 +740,6 @@ class Excel extends \yii\base\Widget
 		if (!isset($this->format))
 			$this->format = \PhpOffice\PhpSpreadsheet\IOFactory::identify($fileName);
 		$objectreader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader($this->format);
-		if ($this->format == "Csv") {
-			$objectreader->setDelimiter($this->CSVDelimiter);
-			$objectreader->setInputEncoding($this->CSVEncoding);
-		}
 		$objectPhpExcel = $objectreader->load($fileName);
 
 		$sheetCount = $objectPhpExcel->getSheetCount();
@@ -826,12 +824,16 @@ class Excel extends \yii\base\Widget
         	    			$columns = isset($this->columns[$title]) ? $this->columns[$title] : [];
         	    			$headers = isset($this->headers[$title]) ? $this->headers[$title] : [];
         	    			$this->executeColumns($worksheet[$index], $models, $this->populateColumns($columns), $headers);
+							$worksheet[$index]->getStyle('A1:Z999')->getAlignment()->setWrapText(true);
         	    			$index++;
         	    		}
         	    	} else {
         	    		$worksheet = $sheet->getActiveSheet();
         	    		$this->executeColumns($worksheet, $this->models, isset($this->columns) ? $this->populateColumns($this->columns) : [], isset($this->headers) ? $this->headers : []);
-        	    	}
+						$worksheet->getStyle('A1:Z999')->getAlignment()->setWrapText(true);
+					}
+
+					$sheet->setActiveSheetIndex(0);
         	    	
         	    	if ($this->asAttachment) {
         	    		$this->setHeaders();
